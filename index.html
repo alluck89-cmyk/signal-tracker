@@ -352,14 +352,18 @@ function shouldFireAlert(key){var now=Date.now();if(!firedAlerts[key]||now-fired
 // SPY * 10 ≈ ES price, or we use ^GSPC
 async function fetchFinnhub(symbol){
   var url=FBASE+'/quote?symbol='+encodeURIComponent(symbol)+'&token='+FKEY;
-  var r=await fetch(url);
+  var r=await fetch(url,{method:'GET',headers:{'Content-Type':'application/json'}});
+  if(!r.ok)throw new Error('HTTP '+r.status+' for '+symbol);
   var d=await r.json();
-  if(!d||d.c===0||d.c===undefined)throw new Error('No data for '+symbol);
+  // Finnhub returns {c:0} for invalid symbols or outside market hours with no data
+  if(!d||d.c===undefined||d.c===null)throw new Error('No data for '+symbol);
+  // c=0 can mean no data OR genuinely $0 — treat 0 as no data for stocks
+  if(d.c===0&&d.pc===0)throw new Error('Zero price for '+symbol);
   return{
-    price:d.c,
+    price:d.c||d.pc,  // use previous close if current is 0 (pre/post market)
     prev:d.pc,
-    change:d.d,
-    changePct:d.dp,
+    change:d.d||0,
+    changePct:d.dp||0,
     high:d.h,
     low:d.l,
     open:d.o
@@ -378,14 +382,11 @@ async function fetchAll(){
   var syms=getSymbols();
   var results={};
 
-  // Fetch ES via SPY (multiply by ~10 for rough ES equivalent)
-  // Better: use ^GSPC (S&P 500 index) from Finnhub
-  var esPromise=fetchFinnhub('^GSPC').catch(function(){
-    // fallback to SPY*10
-    return fetchFinnhub('SPY').then(function(q){
-      return{price:q.price*10,prev:q.prev*10,change:q.change*10,changePct:q.changePct,high:q.high*10,low:q.low*10,open:q.open*10};
-    }).catch(function(){return null;});
-  });
+  // ES Futures proxy via SPY*10 (Finnhub free tier supports SPY, not futures or ^GSPC)
+  // SPY tracks S&P 500 very closely. Multiply by 10 for ES-equivalent price display.
+  var esPromise=fetchFinnhub('SPY').then(function(q){
+    return{price:Math.round(q.price*10*100)/100,prev:Math.round(q.prev*10*100)/100,change:Math.round(q.change*10*100)/100,changePct:q.changePct,high:q.high*10,low:q.low*10,open:q.open*10};
+  }).catch(function(){return null;});
 
   // Fetch all stock symbols in parallel
   var stockPromises=syms.map(function(sym){
@@ -411,7 +412,7 @@ async function fetchAll(){
     ['es-price','es-price2'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent=ps;el.style.color=chgCol;}});
     ['es-chg','es-chg2'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent=chgStr;el.style.color=chgCol;}});
     ['es-time','es-time2'].forEach(function(id){var el=document.getElementById(id);if(el)el.textContent=timeStr;});
-    var elLbl=document.getElementById('es-lbl');if(elLbl)elLbl.textContent='LIVE PRICE';
+    var elLbl=document.getElementById('es-lbl');if(elLbl)elLbl.textContent='LIVE (SPY×10 proxy)';
     var elNow=document.getElementById('es-now');if(elNow)elNow.textContent=ps;
 
     // Distances
@@ -441,7 +442,8 @@ async function fetchAll(){
     if(txt){txt.textContent=timeStr;txt.className='live-txt on';}
   }else{
     if(dot)dot.className='live-dot off';
-    if(txt){txt.textContent='ERROR';txt.className='live-txt off';}
+    if(txt){txt.textContent='NO DATA';txt.className='live-txt off';}
+    ['es-chg','es-chg2'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent='Market closed or API limit reached';el.style.color='#555';}});
   }
 
   // ── Update stock grid ──────────────────────────────────────────────────────
