@@ -356,21 +356,46 @@ function getSymbols(){
 }
 
 async function fetchYahoo(symbol){
-  var yahooUrl='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(symbol)+'?interval=1m&range=1d&corsDomain=finance.yahoo.com';
-  var proxyUrl='https://corsproxy.io/?url='+encodeURIComponent(yahooUrl);
-  var r=await fetch(proxyUrl);
-  if(!r.ok)throw new Error('HTTP '+r.status);
-  var d=await r.json();
-  var meta=d.chart.result[0].meta;
-  var price=meta.regularMarketPrice||meta.previousClose;
-  var prev=meta.previousClose||meta.chartPreviousClose||price;
-  return{
-    price:price,
-    prev:prev,
-    change:price-prev,
-    changePct:((price-prev)/Math.abs(prev))*100,
-    state:meta.marketState
-  };
+  // Try multiple proxy approaches in sequence for reliability
+  var yahooUrl='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(symbol)+'?interval=1m&range=1d';
+  
+  // Approach 1: allorigins.win — free, no restrictions, works on all domains
+  try{
+    var r=await fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(yahooUrl),{signal:AbortSignal.timeout(8000)});
+    if(r.ok){
+      var d=await r.json();
+      var meta=d.chart.result[0].meta;
+      var price=meta.regularMarketPrice||meta.previousClose;
+      var prev=meta.previousClose||meta.chartPreviousClose||price;
+      return{price:price,prev:prev,change:price-prev,changePct:((price-prev)/Math.abs(prev))*100,state:meta.marketState};
+    }
+  }catch(e){}
+  
+  // Approach 2: corsproxy.io free (works on github.io per their docs)  
+  try{
+    var r2=await fetch('https://corsproxy.io/?url='+encodeURIComponent(yahooUrl),{signal:AbortSignal.timeout(8000)});
+    if(r2.ok){
+      var d2=await r2.json();
+      var meta2=d2.chart.result[0].meta;
+      var price2=meta2.regularMarketPrice||meta2.previousClose;
+      var prev2=meta2.previousClose||meta2.chartPreviousClose||price2;
+      return{price:price2,prev:prev2,change:price2-prev2,changePct:((price2-prev2)/Math.abs(prev2))*100,state:meta2.marketState};
+    }
+  }catch(e){}
+
+  // Approach 3: thingproxy — another free CORS proxy
+  try{
+    var r3=await fetch('https://thingproxy.freeboard.io/fetch/'+yahooUrl,{signal:AbortSignal.timeout(8000)});
+    if(r3.ok){
+      var d3=await r3.json();
+      var meta3=d3.chart.result[0].meta;
+      var price3=meta3.regularMarketPrice||meta3.previousClose;
+      var prev3=meta3.previousClose||meta3.chartPreviousClose||price3;
+      return{price:price3,prev:prev3,change:price3-prev3,changePct:((price3-prev3)/Math.abs(prev3))*100,state:meta3.marketState};
+    }
+  }catch(e){}
+
+  throw new Error('All proxies failed for '+symbol);
 }
 
 // ─── Main fetch loop ──────────────────────────────────────────────────────────
