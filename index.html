@@ -313,8 +313,6 @@ textarea:focus{border-color:#333}
 
 <script>
 // ─── Finnhub API key ──────────────────────────────────────────────────────────
-var AV_KEY = 'TT1EPSVU48KKDJKG';
-var AV_BASE = 'https://www.alphavantage.co/query';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 var REFRESH_MS = 15000;
@@ -346,9 +344,9 @@ function fp(n){if(!n||isNaN(+n))return'—';var v=+n;return'$'+(v<10?v.toFixed(2
 function fmt(n){return n?Number(n).toLocaleString():'—';}
 function shouldFireAlert(key){var now=Date.now();if(!firedAlerts[key]||now-firedAlerts[key]>ALERT_COOLDOWN_MS){firedAlerts[key]=now;return true;}return false;}
 
-// ─── Alpha Vantage fetch ──────────────────────────────────────────────────────
-// Uses REALTIME_BULK_QUOTES — fetches up to 100 symbols in ONE API call
-// Free tier: 25 calls/day, 5/min — bulk means we only need 1 call per refresh
+// ─── Yahoo Finance via corsproxy.io ──────────────────────────────────────────
+// corsproxy.io explicitly supports github.io — no key, no signup
+// Yahoo Finance v8 chart endpoint — reliable, real-time
 // SPY*10 used as ES futures proxy
 
 function getSymbols(){
@@ -357,25 +355,22 @@ function getSymbols(){
   return syms;
 }
 
-async function fetchBulkQuotes(symbols){
-  // Add SPY for ES proxy
-  var allSyms=['SPY'].concat(symbols.filter(function(s){return s!=='SPY';}));
-  var url=AV_BASE+'?function=REALTIME_BULK_QUOTES&symbol='+allSyms.join(',')+'&apikey='+AV_KEY;
-  var r=await fetch(url);
+async function fetchYahoo(symbol){
+  var yahooUrl='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(symbol)+'?interval=1m&range=1d&corsDomain=finance.yahoo.com';
+  var proxyUrl='https://corsproxy.io/?url='+encodeURIComponent(yahooUrl);
+  var r=await fetch(proxyUrl);
   if(!r.ok)throw new Error('HTTP '+r.status);
   var d=await r.json();
-  // Alpha Vantage bulk quotes response
-  var quotes=d['data']||[];
-  var out={};
-  quotes.forEach(function(q){
-    if(!q||!q.symbol)return;
-    var price=parseFloat(q.price||q.close||0);
-    var prev=parseFloat(q.previous_close||price);
-    var change=price-prev;
-    var changePct=prev?((change/prev)*100):0;
-    out[q.symbol]={price:price,prev:prev,change:change,changePct:changePct,high:parseFloat(q.high||0),low:parseFloat(q.low||0),open:parseFloat(q.open||0)};
-  });
-  return out;
+  var meta=d.chart.result[0].meta;
+  var price=meta.regularMarketPrice||meta.previousClose;
+  var prev=meta.previousClose||meta.chartPreviousClose||price;
+  return{
+    price:price,
+    prev:prev,
+    change:price-prev,
+    changePct:((price-prev)/Math.abs(prev))*100,
+    state:meta.marketState
+  };
 }
 
 // ─── Main fetch loop ──────────────────────────────────────────────────────────
@@ -384,18 +379,18 @@ async function fetchAll(){
   var results={};
   var esResult=null;
 
-  try{
-    var bulk=await fetchBulkQuotes(syms);
-    // Extract SPY and convert to ES proxy (*10)
-    if(bulk['SPY']&&bulk['SPY'].price){
-      var spy=bulk['SPY'];
-      esResult={price:Math.round(spy.price*10*100)/100,prev:Math.round(spy.prev*10*100)/100,change:Math.round(spy.change*10*100)/100,changePct:spy.changePct,high:spy.high*10,low:spy.low*10};
-    }
-    // Copy stock results
-    syms.forEach(function(sym){if(bulk[sym])results[sym]=bulk[sym];});
-  }catch(e){
-    console.error('Fetch error:',e);
-  }
+  // Fetch SPY for ES proxy + all stocks in parallel
+  var allSyms=['SPY'].concat(syms.filter(function(s){return s!=='SPY';}));
+  await Promise.allSettled(allSyms.map(async function(sym){
+    try{
+      var q=await fetchYahoo(sym);
+      if(sym==='SPY'){
+        esResult={price:Math.round(q.price*10*100)/100,prev:Math.round(q.prev*10*100)/100,change:Math.round(q.change*10*100)/100,changePct:q.changePct,state:q.state};
+      }else{
+        results[sym]=q;
+      }
+    }catch(e){console.warn(sym+' fetch failed:',e.message);}
+  }));
 
   var now=new Date();
   var timeStr=now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
