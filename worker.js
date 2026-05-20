@@ -1,43 +1,36 @@
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
+// Pure API proxy Worker — just handles /price requests
+// The HTML app is served separately via GitHub Pages
+addEventListener('fetch', event => {
+  event.respondWith(handleRequest(event.request));
+});
 
-    // CORS preflight
-    if (request.method === 'OPTIONS') {
-      return new Response(null, {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, OPTIONS',
-          'Access-Control-Allow-Headers': '*',
-        }
-      });
-    }
+async function handleRequest(request) {
+  const url = new URL(request.url);
 
-    // Proxy /price requests to Twelve Data
-    if (url.pathname === '/price') {
-      try {
-        const tdUrl = 'https://api.twelvedata.com/price' + url.search;
-        const resp = await fetch(tdUrl);
-        const data = await resp.text();
-        return new Response(data, {
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-            'Cache-Control': 'no-cache, no-store'
-          }
-        });
-      } catch (e) {
-        return new Response(JSON.stringify({error: e.message}), {
-          status: 500,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-          }
-        });
+  // CORS preflight
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET',
+        'Access-Control-Allow-Headers': '*',
       }
-    }
-
-    // Serve static assets
-    return env.ASSETS.fetch(request);
+    });
   }
-};
+
+  // Proxy price requests to Twelve Data
+  if (url.pathname === '/price') {
+    const tdUrl = 'https://api.twelvedata.com/price' + url.search;
+    const resp = await fetch(tdUrl);
+    const text = await resp.text();
+    return new Response(text, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'no-store'
+      }
+    });
+  }
+
+  return new Response('Signal Tracker API Proxy', { status: 200 });
+}
