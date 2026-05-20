@@ -318,7 +318,7 @@ textarea:focus{border-color:#333}
 var REFRESH_MS = 15000;
 var ALERT_PCT  = 5;
 var ES_ALERT_PTS = 10;
-var SK = 'signal-finnhub-v1';
+var SK = 'signal-td-v1';
 var LEVELS_SK = 'es-levels-v2';
 
 // ─── ES Levels ────────────────────────────────────────────────────────────────
@@ -360,28 +360,34 @@ function connectWS(){fetchREST();}
 
 async function fetchREST(){
   var syms=['SPY'].concat(getSymbols().filter(function(s){return s!=='SPY';}));
-  try{
-    // Twelve Data batch price endpoint - all symbols in one call
-    var url=TD_BASE+'/price?symbol='+encodeURIComponent(syms.join(','))+'&apikey='+TD_KEY;
-    var r=await fetch(url,{signal:AbortSignal.timeout(8000)});
-    if(r.ok){
-      var d=await r.json();
-      syms.forEach(function(sym){
-        var entry=syms.length===1?d:d[sym];
-        if(entry&&entry.price){
-          var price=parseFloat(entry.price);
+  var anySuccess=false;
+
+  // Fetch all symbols in parallel - individual calls most reliable on free tier
+  await Promise.allSettled(syms.map(async function(sym){
+    try{
+      var url=TD_BASE+'/price?symbol='+encodeURIComponent(sym)+'&apikey='+TD_KEY;
+      var r=await fetch(url,{signal:AbortSignal.timeout(8000)});
+      if(r.ok){
+        var d=await r.json();
+        if(d&&d.price){
+          var price=parseFloat(d.price);
           var prev=wsPrices[sym]?wsPrices[sym].price:price;
-          wsPrices[sym]={price:price,prev:prev,change:price-prev,changePct:prev?((price-prev)/prev)*100:0};
+          var change=price-prev;
+          var changePct=prev?((change/prev)*100):0;
+          wsPrices[sym]={price:price,prev:prev,change:change,changePct:changePct};
+          anySuccess=true;
         }
-      });
-      wsReady=true;
-      var dot=document.getElementById('live-dot'),txt=document.getElementById('live-txt');
-      if(dot)dot.className='live-dot on';
-      if(txt){txt.textContent='LIVE';txt.className='live-txt on';}
-    }
-  }catch(ex){
+      }
+    }catch(ex){console.warn(sym+' fetch failed');}
+  }));
+
+  if(anySuccess){
+    wsReady=true;
+    var dot=document.getElementById('live-dot'),txt=document.getElementById('live-txt');
+    if(dot)dot.className='live-dot on';
+    if(txt){txt.textContent='LIVE';txt.className='live-txt on';}
+  }else{
     var dot=document.getElementById('live-dot');if(dot)dot.className='live-dot off';
-    console.warn('Twelve Data error:',ex);
   }
   renderPrices();
 }
