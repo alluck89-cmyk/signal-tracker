@@ -344,10 +344,12 @@ function fp(n){if(!n||isNaN(+n))return'—';var v=+n;return'$'+(v<10?v.toFixed(2
 function fmt(n){return n?Number(n).toLocaleString():'—';}
 function shouldFireAlert(key){var now=Date.now();if(!firedAlerts[key]||now-firedAlerts[key]>ALERT_COOLDOWN_MS){firedAlerts[key]=now;return true;}return false;}
 
-// ─── Yahoo Finance via corsproxy.io ──────────────────────────────────────────
-// corsproxy.io explicitly supports github.io — no key, no signup
-// Yahoo Finance v8 chart endpoint — reliable, real-time
-// SPY*10 used as ES futures proxy
+// ─── Finnhub WebSocket ── bypasses CORS, works on GitHub Pages ───────────────
+var FKEY = 'd86a479r01qnvdehljd0';
+var wsConn = null;
+var wsReady = false;
+var wsPrices = {};
+var wsReconnTimer = null;
 
 function getSymbols(){
   var syms=[];
@@ -355,67 +357,85 @@ function getSymbols(){
   return syms;
 }
 
-async function fetchYahoo(symbol){
-  // Try multiple proxy approaches in sequence for reliability
-  var yahooUrl='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(symbol)+'?interval=1m&range=1d';
-  
-  // Approach 1: allorigins.win — free, no restrictions, works on all domains
+function connectWS(){
+  if(wsConn&&(wsConn.readyState===0||wsConn.readyState===1))return;
   try{
-    var r=await fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(yahooUrl),{signal:AbortSignal.timeout(8000)});
-    if(r.ok){
-      var d=await r.json();
-      var meta=d.chart.result[0].meta;
-      var price=meta.regularMarketPrice||meta.previousClose;
-      var prev=meta.previousClose||meta.chartPreviousClose||price;
-      return{price:price,prev:prev,change:price-prev,changePct:((price-prev)/Math.abs(prev))*100,state:meta.marketState};
-    }
-  }catch(e){}
-  
-  // Approach 2: corsproxy.io free (works on github.io per their docs)  
-  try{
-    var r2=await fetch('https://corsproxy.io/?url='+encodeURIComponent(yahooUrl),{signal:AbortSignal.timeout(8000)});
-    if(r2.ok){
-      var d2=await r2.json();
-      var meta2=d2.chart.result[0].meta;
-      var price2=meta2.regularMarketPrice||meta2.previousClose;
-      var prev2=meta2.previousClose||meta2.chartPreviousClose||price2;
-      return{price:price2,prev:prev2,change:price2-prev2,changePct:((price2-prev2)/Math.abs(prev2))*100,state:meta2.marketState};
-    }
-  }catch(e){}
+    wsConn=new WebSocket('wss://ws.finnhub.io?token='+FKEY);
+    wsConn.onopen=function(){
+      wsReady=true;
+      var dot=document.getElementById('live-dot'),txt=document.getElementById('live-txt');
+      if(dot)dot.className='live-dot on';
+      if(txt){txt.textContent='LIVE';txt.className='live-txt on';}
+      // Subscribe to SPY + all tracked tickers
+      var syms=['SPY'].concat(getSymbols().filter(function(s){return s!=='SPY';}));
+      syms.forEach(function(sym){wsConn.send(JSON.stringify({type:'subscribe',symbol:sym}));});
+    };
+    wsConn.onmessage=function(e){
+      try{
+        var msg=JSON.parse(e.data);
+        if(msg.type==='trade'&&msg.data){
+          msg.data.forEach(function(t){
+            var sym=t.s,price=t.p;
+            if(!wsPrices[sym])wsPrices[sym]={price:price,prev:price,change:0,changePct:0};
+            var prev=wsPrices[sym].prev||price;
+            wsPrices[sym].price=price;
+            wsPrices[sym].change=price-prev;
+            wsPrices[sym].changePct=prev?((price-prev)/prev)*100:0;
+          });
+          renderPrices();
+        }
+      }catch(ex){}
+    };
+    wsConn.onclose=function(){
+      wsReady=false;
+      var dot=document.getElementById('live-dot');if(dot)dot.className='live-dot off';
+      if(wsReconnTimer)clearTimeout(wsReconnTimer);
+      wsReconnTimer=setTimeout(connectWS,5000);
+    };
+    wsConn.onerror=function(){fetchREST();};
+  }catch(ex){fetchREST();}
+}
 
-  // Approach 3: thingproxy — another free CORS proxy
-  try{
-    var r3=await fetch('https://thingproxy.freeboard.io/fetch/'+yahooUrl,{signal:AbortSignal.timeout(8000)});
-    if(r3.ok){
-      var d3=await r3.json();
-      var meta3=d3.chart.result[0].meta;
-      var price3=meta3.regularMarketPrice||meta3.previousClose;
-      var prev3=meta3.previousClose||meta3.chartPreviousClose||price3;
-      return{price:price3,prev:prev3,change:price3-prev3,changePct:((price3-prev3)/Math.abs(prev3))*100,state:meta3.marketState};
-    }
-  }catch(e){}
-
-  throw new Error('All proxies failed for '+symbol);
+// REST fallback — also works once Finnhub account is fully active
+async function fetchREST(){
+  var syms=['SPY'].concat(getSymbols().filter(function(s){return s!=='SPY';}));
+  await Promise.allSettled(syms.map(async function(sym){
+    try{
+      var r=await fetch('https://finnhub.io/api/v1/quote?symbol='+sym+'&token='+FKEY,{signal:AbortSignal.timeout(6000)});
+      if(r.ok){var d=await r.json();if(d&&d.c){wsPrices[sym]={price:d.c,prev:d.pc||d.c,change:d.d||0,changePct:d.dp||0};}}
+    }catch(ex){}
+  }));
+  renderPrices();
 }
 
 // ─── Main fetch loop ──────────────────────────────────────────────────────────
-async function fetchAll(){
-  var syms=getSymbols();
+function fetchAll(){
+  // Subscribe new symbols if tracker has changed
+  if(wsReady&&wsConn){
+    var syms=['SPY'].concat(getSymbols().filter(function(s){return s!=='SPY';}));
+    syms.forEach(function(sym){
+      if(!wsPrices[sym])wsConn.send(JSON.stringify({type:'subscribe',symbol:sym}));
+    });
+  }else if(!wsReady){
+    fetchREST();
+  }
+}
+
+function renderPrices(){
   var results={};
   var esResult=null;
+  if(wsPrices['SPY']&&wsPrices['SPY'].price){
+    var spy=wsPrices['SPY'];
+    var ep=Math.round(spy.price*10*100)/100;
+    esResult={price:ep,prev:spy.prev*10,change:spy.change*10,changePct:spy.changePct};
+  }
+  getSymbols().forEach(function(sym){if(wsPrices[sym]&&wsPrices[sym].price)results[sym]=wsPrices[sym];});
 
-  // Fetch SPY for ES proxy + all stocks in parallel
-  var allSyms=['SPY'].concat(syms.filter(function(s){return s!=='SPY';}));
-  await Promise.allSettled(allSyms.map(async function(sym){
-    try{
-      var q=await fetchYahoo(sym);
-      if(sym==='SPY'){
-        esResult={price:Math.round(q.price*10*100)/100,prev:Math.round(q.prev*10*100)/100,change:Math.round(q.change*10*100)/100,changePct:q.changePct,state:q.state};
-      }else{
-        results[sym]=q;
-      }
-    }catch(e){console.warn(sym+' fetch failed:',e.message);}
-  }));
+  var now=new Date();
+  var timeStr=now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  var dot=document.getElementById('live-dot'),txt=document.getElementById('live-txt');
+  if(dot&&wsReady)dot.className='live-dot on';
+
 
   var now=new Date();
   var timeStr=now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -820,14 +840,25 @@ loadLevels();
 updateNotifBtn();
 if(Notification.permission==='granted')notifOK=true;
 
-// Fetch immediately then every 15s
-fetchAll();
+// Connect WebSocket for live prices — WebSocket bypasses CORS
+connectWS();
+
+// Also try REST immediately as backup
+fetchREST();
+
+// Periodic check every 15s to subscribe new symbols + REST fallback
 refreshTimer=setInterval(fetchAll,REFRESH_MS);
 
 // Pause when hidden, resume when visible
 document.addEventListener('visibilitychange',function(){
-  if(document.hidden){clearInterval(refreshTimer);}
-  else{fetchAll();refreshTimer=setInterval(fetchAll,REFRESH_MS);}
+  if(document.hidden){
+    clearInterval(refreshTimer);
+    if(wsConn&&wsConn.readyState===1)wsConn.close();
+  }else{
+    connectWS();
+    fetchREST();
+    refreshTimer=setInterval(fetchAll,REFRESH_MS);
+  }
 });
 </script>
 </body>
