@@ -369,12 +369,16 @@ async function fetchREST(){
       var r=await fetch(url,{signal:AbortSignal.timeout(8000)});
       if(r.ok){
         var d=await r.json();
-        if(d&&d.price){
+        if(d&&d.price&&parseFloat(d.price)>0){
           var price=parseFloat(d.price);
           var prev=wsPrices[sym]?wsPrices[sym].price:price;
           var change=price-prev;
           var changePct=prev?((change/prev)*100):0;
-          wsPrices[sym]={price:price,prev:prev,change:change,changePct:changePct};
+          wsPrices[sym]={price:price,prev:prev,change:change,changePct:changePct,stale:false};
+          anySuccess=true;
+        }else if(wsPrices[sym]&&wsPrices[sym].price){
+          // Market closed — keep last known price, mark as stale
+          wsPrices[sym].stale=true;
           anySuccess=true;
         }
       }
@@ -470,10 +474,16 @@ function renderPrices(){
 
     if(dot){dot.className='live-dot on';}
     if(txt){txt.textContent=timeStr;txt.className='live-txt on';}
+  }else if(wsPrices['SPY']&&wsPrices['SPY'].stale){
+    // Market closed — show last price with indicator
+    if(dot)dot.className='live-dot off';
+    if(txt){txt.textContent='CLOSED';txt.className='live-txt off';}
+    var elLbl=document.getElementById('es-lbl');if(elLbl)elLbl.textContent='LAST CLOSE';
+    ['es-chg','es-chg2'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent='Market closed · Last known price';el.style.color='#555';}});
   }else{
     if(dot)dot.className='live-dot off';
-    if(txt){txt.textContent='NO DATA';txt.className='live-txt off';}
-    ['es-chg','es-chg2'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent='Market closed or API limit reached';el.style.color='#555';}});
+    if(txt){txt.textContent='CLOSED';txt.className='live-txt off';}
+    ['es-chg','es-chg2'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent='Market closed';el.style.color='#555';}});
   }
 
   // ── Update stock grid ──────────────────────────────────────────────────────
