@@ -11,7 +11,7 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{background:#080808;color:#e0e0e0;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;min-height:100vh;display:flex;flex-direction:column;}
-.hdr{background:#0a0a0a;border-bottom:1px solid #1a1a1a;padding:12px 16px;padding-top:max(12px,env(safe-area-inset-top));flex-shrink:0;display:flex;align-items:center;justify-content:space-between}
+.hdr{background:#0a0a0a;border-bottom:1px solid #1a1a1a;padding:12px 16px;padding-top:max(12px,env(safe-area-inset-top));flex-shrink:0;display:flex;align-items:center;justify-content:space-between;position:relative;z-index:200;}
 .htitle{font-size:17px;font-weight:800;background:linear-gradient(135deg,#fff,#888);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .hsub{font-size:9px;color:#333;font-family:monospace;margin-top:1px}
 .live-pill{display:flex;align-items:center;gap:5px;background:#0a1a0a;border:1px solid #00c85333;border-radius:20px;padding:3px 9px}
@@ -23,10 +23,10 @@ body{background:#080808;color:#e0e0e0;font-family:-apple-system,BlinkMacSystemFo
 .live-txt.on{color:#00c853}
 .live-txt.off{color:#ff5252}
 .tabs{display:flex;gap:2px;background:#111;border:1px solid #1e1e1e;border-radius:8px;padding:3px}
-.tab{padding:6px 13px;border-radius:5px;border:none;cursor:pointer;font-family:monospace;font-size:10px;font-weight:800;letter-spacing:1px;-webkit-appearance:none;position:relative;z-index:10;}
+.tab{padding:6px 13px;border-radius:5px;border:none;cursor:pointer;font-family:monospace;font-size:10px;font-weight:800;letter-spacing:1px;-webkit-appearance:none;position:relative;z-index:100;touch-action:manipulation;pointer-events:all;}
 .tab.on{background:#fff;color:#000}.tab.off{background:transparent;color:#555}
-.body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:env(safe-area-inset-bottom);}
-.wrap{padding:14px 14px 60px;max-width:680px;margin:0 auto}
+.body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:env(safe-area-inset-bottom);position:relative;z-index:1;-webkit-transform:translateZ(0);}
+.wrap{padding:14px 14px 60px;max-width:680px;margin:0 auto;position:relative;z-index:1;}
 
 @keyframes pulse{0%,100%{box-shadow:none;border-color:#ff6d00}50%{box-shadow:0 0 14px 3px rgba(255,109,0,.3);border-color:#ff9100}}
 .alert-banner{background:#150a00;border:1px solid #ff6d00;border-radius:10px;padding:12px 13px;margin-bottom:14px;animation:pulse 2s ease-in-out infinite;display:none}
@@ -37,7 +37,7 @@ body{background:#080808;color:#e0e0e0;font-family:-apple-system,BlinkMacSystemFo
 .a-detail{font-size:10px;color:#aaa;font-family:monospace}
 .a-pct{font-size:11px;font-weight:800;font-family:monospace}
 
-.notif-btn{width:100%;padding:10px;background:#111;border:1px solid #0064b033;border-radius:8px;color:#40c4ff;font-family:monospace;font-size:11px;font-weight:700;cursor:pointer;margin-bottom:14px;letter-spacing:1px;text-align:center}
+.notif-btn{width:100%;padding:10px;background:#111;border:1px solid #0064b033;border-radius:8px;color:#40c4ff;font-family:monospace;font-size:11px;font-weight:700;cursor:pointer;margin-bottom:14px;letter-spacing:1px;text-align:center;touch-action:manipulation;-webkit-appearance:none;}
 .notif-btn.on{border-color:#00c85333;color:#00c853}
 .notif-btn.no{border-color:#d5000033;color:#ff5252;cursor:default}
 
@@ -75,7 +75,7 @@ textarea:focus{border-color:#333}
 .ta-row{display:flex;justify-content:space-between;margin:4px 0 10px}
 .ta-cc{font-size:10px;color:#2a2a2a;font-family:monospace}
 .clr-btn{font-size:10px;background:none;border:none;color:#444;cursor:pointer;font-family:monospace}
-.load-btn{width:100%;padding:12px;border:none;border-radius:9px;font-size:13px;font-weight:800;cursor:pointer;font-family:monospace;letter-spacing:1px;-webkit-appearance:none;position:relative;z-index:10;}
+.load-btn{width:100%;padding:12px;border:none;border-radius:9px;font-size:13px;font-weight:800;cursor:pointer;font-family:monospace;letter-spacing:1px;-webkit-appearance:none;position:relative;z-index:100;touch-action:manipulation;pointer-events:all;}
 .load-btn.on{background:linear-gradient(135deg,#fff,#ccc);color:#000}
 .load-btn.off{background:#111;color:#2a2a2a;cursor:not-allowed}
 .err{margin-top:10px;background:#130505;border:1px solid #4a0e0e;border-radius:8px;padding:11px 12px;display:none}
