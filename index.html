@@ -362,7 +362,7 @@ async function fetchREST(){
   var syms=['SPY'].concat(getSymbols().filter(function(s){return s!=='SPY';}));
   var anySuccess=false;
 
-  // Fetch all symbols in parallel - individual calls most reliable on free tier
+  // Fetch all symbols in parallel
   await Promise.allSettled(syms.map(async function(sym){
     try{
       var url=TD_BASE+'/price?symbol='+encodeURIComponent(sym)+'&apikey='+TD_KEY;
@@ -381,6 +381,21 @@ async function fetchREST(){
     }catch(ex){console.warn(sym+' fetch failed');}
   }));
 
+  // Fetch ES1! futures directly
+  try{
+    var esUrl=TD_BASE+'/price?symbol=ES1%3A1&apikey='+TD_KEY;
+    var esR=await fetch(esUrl,{signal:AbortSignal.timeout(8000)});
+    if(esR.ok){
+      var esD=await esR.json();
+      if(esD&&esD.price){
+        var esPrice=parseFloat(esD.price);
+        var esPrev=wsPrices['ES1!']?wsPrices['ES1!'].price:esPrice;
+        wsPrices['ES1!']={price:esPrice,prev:esPrev,change:esPrice-esPrev,changePct:esPrev?((esPrice-esPrev)/esPrev)*100:0};
+        anySuccess=true;
+      }
+    }
+  }catch(ex){console.warn('ES1! fetch failed, using SPY proxy');}
+
   if(anySuccess){
     wsReady=true;
     var dot=document.getElementById('live-dot'),txt=document.getElementById('live-txt');
@@ -398,10 +413,14 @@ function fetchAll(){fetchREST();}
 function renderPrices(){
   var results={};
   var esResult=null;
-  if(wsPrices['SPY']&&wsPrices['SPY'].price){
+  // Prefer real ES1! futures, fall back to SPY*10
+  if(wsPrices['ES1!']&&wsPrices['ES1!'].price){
+    esResult=wsPrices['ES1!'];
+  }else if(wsPrices['SPY']&&wsPrices['SPY'].price){
     var spy=wsPrices['SPY'];
-    var ep=Math.round(spy.price*10*100)/100;
-    esResult={price:ep,prev:spy.prev*10,change:spy.change*10,changePct:spy.changePct};
+    // SPY*10 + 36pt offset to match ES futures (accounts for tracking difference)
+    var ep=Math.round((spy.price*10+36)*100)/100;
+    esResult={price:ep,prev:spy.prev*10+36,change:spy.change*10,changePct:spy.changePct};
   }
   var syms=getSymbols();
   syms.forEach(function(sym){if(wsPrices[sym]&&wsPrices[sym].price)results[sym]=wsPrices[sym];});
@@ -423,7 +442,7 @@ function renderPrices(){
     ['es-price','es-price2'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent=ps;el.style.color=chgCol;}});
     ['es-chg','es-chg2'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent=chgStr;el.style.color=chgCol;}});
     ['es-time','es-time2'].forEach(function(id){var el=document.getElementById(id);if(el)el.textContent=timeStr;});
-    var elLbl=document.getElementById('es-lbl');if(elLbl)elLbl.textContent='LIVE (SPY×10 proxy)';
+    var elLbl=document.getElementById('es-lbl');if(elLbl)elLbl.textContent=wsPrices['ES1!']?'LIVE FUTURES ES1!':'LIVE (SPY×10 proxy)';
     var elNow=document.getElementById('es-now');if(elNow)elNow.textContent=ps;
 
     // Distances
