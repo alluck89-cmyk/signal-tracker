@@ -345,7 +345,7 @@ function fmt(n){return n?Number(n).toLocaleString():'—';}
 function shouldFireAlert(key){var now=Date.now();if(!firedAlerts[key]||now-firedAlerts[key]>ALERT_COOLDOWN_MS){firedAlerts[key]=now;return true;}return false;}
 
 // ─── Finnhub WebSocket ── bypasses CORS, works on GitHub Pages ───────────────
-var FKEY = 'd86a479r01qnvdehljd0';
+var FKEY = 'd86ga39r01qgiu45abg0';
 var wsConn = null;
 var wsReady = false;
 var wsPrices = {};
@@ -429,18 +429,14 @@ function renderPrices(){
     var ep=Math.round(spy.price*10*100)/100;
     esResult={price:ep,prev:spy.prev*10,change:spy.change*10,changePct:spy.changePct};
   }
-  getSymbols().forEach(function(sym){if(wsPrices[sym]&&wsPrices[sym].price)results[sym]=wsPrices[sym];});
-
-  var now=new Date();
-  var timeStr=now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  var dot=document.getElementById('live-dot'),txt=document.getElementById('live-txt');
-  if(dot&&wsReady)dot.className='live-dot on';
-
+  var syms=getSymbols();
+  syms.forEach(function(sym){if(wsPrices[sym]&&wsPrices[sym].price)results[sym]=wsPrices[sym];});
 
   var now=new Date();
   var timeStr=now.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   var dot=document.getElementById('live-dot');
   var txt=document.getElementById('live-txt');
+  if(dot&&wsReady)dot.className='live-dot on';
 
   // ── Update ES display ──────────────────────────────────────────────────────
   if(esResult&&esResult.price){
