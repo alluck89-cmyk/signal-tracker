@@ -29,7 +29,7 @@ body{background:#080808;color:#e0e0e0;font-family:-apple-system,BlinkMacSystemFo
 .wrap{padding:14px 14px 60px;max-width:680px;margin:0 auto;position:relative;z-index:1;}
 
 @keyframes pulse{0%,100%{box-shadow:none;border-color:#ff6d00}50%{box-shadow:0 0 14px 3px rgba(255,109,0,.3);border-color:#ff9100}}
-.alert-banner{background:#150a00;border:1px solid #ff6d00;border-radius:10px;padding:12px 13px;margin-bottom:14px;animation:pulse 2s ease-in-out infinite;display:none}
+.alert-banner{background:#150a00;border:1px solid #ff6d00;border-radius:10px;padding:12px 13px;margin-bottom:14px;animation:pulse 2s ease-in-out infinite;display:none;pointer-events:none;}
 .alert-title{font-size:10px;font-weight:800;color:#ff9100;font-family:monospace;letter-spacing:1px;margin-bottom:8px}
 .alert-item{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #2a1400}
 .alert-item:last-child{border-bottom:none}
@@ -70,18 +70,18 @@ body{background:#080808;color:#e0e0e0;font-family:-apple-system,BlinkMacSystemFo
 .howto-h{font-size:11px;font-weight:700;color:#40c4ff;margin-bottom:6px}
 .step{display:flex;gap:8px;margin-bottom:3px;font-size:12px;color:#777;line-height:1.5}
 
-textarea{width:100%;background:#0d0d0d;border:1px solid #1e1e1e;border-radius:10px;color:#ddd;font-size:13px;padding:12px 13px;resize:none;outline:none;font-family:monospace;line-height:1.5;height:110px}
+textarea{width:100%;background:#0d0d0d;border:1px solid #1e1e1e;border-radius:10px;color:#ddd;font-size:13px;padding:12px 13px;resize:none;outline:none;font-family:monospace;line-height:1.5;height:110px;position:relative;z-index:5;}
 textarea:focus{border-color:#333}
 .ta-row{display:flex;justify-content:space-between;margin:4px 0 10px}
 .ta-cc{font-size:10px;color:#2a2a2a;font-family:monospace}
 .clr-btn{font-size:10px;background:none;border:none;color:#444;cursor:pointer;font-family:monospace}
 .load-btn{width:100%;padding:12px;border:none;border-radius:9px;font-size:13px;font-weight:800;cursor:pointer;font-family:monospace;letter-spacing:1px;-webkit-appearance:none;position:relative;z-index:100;touch-action:manipulation;pointer-events:all;}
 .load-btn.on{background:linear-gradient(135deg,#fff,#ccc);color:#000}
-.load-btn.off{background:#111;color:#2a2a2a;cursor:not-allowed}
+.load-btn.off{background:#111;color:#2a2a2a;cursor:pointer;}
 .err{margin-top:10px;background:#130505;border:1px solid #4a0e0e;border-radius:8px;padding:11px 12px;display:none}
 .err-t{color:#ff5252;font-size:11px;font-weight:700;margin-bottom:3px}
 .err-m{color:#cc3333;font-size:11px;font-family:monospace;word-break:break-word}
-.res{margin-top:14px;display:none}
+.res{margin-top:14px;display:none;position:relative;z-index:5;}
 .ovr{background:#0d0d0d;border:1px solid #1e1e1e;border-radius:11px;padding:14px;margin-bottom:12px}
 .gauge-lb{display:flex;justify-content:space-between;font-size:9px;color:#555;margin-bottom:3px;font-family:monospace}
 .gauge-tr{height:4px;background:#1a1a1a;border-radius:2px;overflow:hidden}
@@ -144,7 +144,7 @@ textarea:focus{border-color:#333}
 .tcard-footer{display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.05)}
 .tmt{font-size:9px;color:#2a2a2a;font-family:monospace}
 .rm-btn{background:#1a0505;border:1px solid #3a1010;color:#cc4444;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:11px;font-weight:700;font-family:monospace}
-.empty{text-align:center;padding:50px 0;color:#222}
+.empty{text-align:center;padding:50px 0;color:#222;pointer-events:none;}
 .eico{font-size:32px}
 .elbl{font-family:monospace;font-size:10px;letter-spacing:1px;margin-top:10px}
 .disc{text-align:center;font-size:9px;color:#1a1a1a;font-family:monospace;margin-top:14px;padding-bottom:20px}
@@ -259,12 +259,12 @@ textarea:focus{border-color:#333}
       <div class="step"><span style="color:#333;font-family:monospace">4.</span><span style="color:#777">Tap <b style="color:#bbb">⚡ ADD ALL</b> — prices update every 15s</span></div>
     </div>
 
-    <textarea id="txt" placeholder="Paste the JSON block from Claude here..." oninput="ti()"></textarea>
+    <textarea id="txt" placeholder="Paste the JSON block from Claude here..." oninput="ti()" onchange="ti()" onkeyup="ti()" onpaste="setTimeout(ti,50)"></textarea>
     <div class="ta-row">
       <span class="ta-cc" id="cc"></span>
       <button class="clr-btn" id="clrb" style="display:none" onclick="clr()">CLEAR</button>
     </div>
-    <button class="load-btn off" id="lbtn" onclick="go()">▶  LOAD SIGNALS</button>
+    <button class="load-btn on" id="lbtn" onclick="go()" style="touch-action:manipulation;">▶  LOAD SIGNALS</button>
     <div class="err" id="err"><div class="err-t">⚠ Error</div><div class="err-m" id="errmsg"></div></div>
     <div class="res" id="res"></div>
     <div class="empty" id="emp"><div class="eico">📡</div><div class="elbl">PASTE JSON FROM CLAUDE TO BEGIN</div></div>
@@ -394,9 +394,6 @@ async function fetchREST(){
 
 // ─── Main fetch loop ──────────────────────────────────────────────────────────
 function fetchAll(){fetchREST();}
-
-  }
-}
 
 function renderPrices(){
   var results={};
@@ -651,7 +648,7 @@ function ti(){
   var v=document.getElementById('txt').value;
   document.getElementById('cc').textContent=v.length?v.length.toLocaleString()+' chars':'';
   document.getElementById('clrb').style.display=v.trim().length?'inline':'none';
-  document.getElementById('lbtn').className='load-btn '+(v.trim().length?'on':'off');
+  document.getElementById('lbtn').className='load-btn on';
 }
 function clr(){document.getElementById('txt').value='';ti();document.getElementById('res').style.display='none';document.getElementById('emp').style.display='block';document.getElementById('err').style.display='none';}
 function pj(raw){
@@ -664,7 +661,8 @@ function pj(raw){
   throw new Error('Not valid JSON. Copy the full JSON block from Claude.');
 }
 function go(){
-  var raw=document.getElementById('txt').value.trim();if(!raw)return;
+  var raw=document.getElementById('txt').value.trim();
+  if(!raw){alert('Please paste a JSON block first');return;}
   document.getElementById('err').style.display='none';document.getElementById('emp').style.display='none';
   try{
     var d=pj(raw);
