@@ -344,42 +344,32 @@ function fp(n){if(!n||isNaN(+n))return'—';var v=+n;return'$'+(v<10?v.toFixed(2
 function fmt(n){return n?Number(n).toLocaleString():'—';}
 function shouldFireAlert(key){var now=Date.now();if(!firedAlerts[key]||now-firedAlerts[key]>ALERT_COOLDOWN_MS){firedAlerts[key]=now;return true;}return false;}
 
+// ─── Finnhub WebSocket ── bypasses CORS, works on GitHub Pages ───────────────
+var TD_KEY = '17045e3606d545e0960bc743c5ad1aef';
+var TD_BASE = 'https://signal-tracker.alluck89.workers.dev';
+var wsPrices = {};
+var wsReady = false;
+
+function getSymbols(){
+  var syms=[];
+  tracked.forEach(function(sig){if(sig.ticker&&syms.indexOf(sig.ticker)<0)syms.push(sig.ticker);});
+  return syms;
+}
+
+function connectWS(){fetchREST();}
+
 async function fetchREST(){
   var syms=['SPY'].concat(getSymbols().filter(function(s){return s!=='SPY';}));
   var anySuccess=false;
-  var WORKER_URL = 'https://YOUR-WORKER-URL.workers.dev'; // ← REPLACE WITH YOUR CLOUDFLARE WORKER URL
-  
-  try{
-    var symbolParam = syms.join(',');
-    var url = WORKER_URL + '/prices?symbols=' + encodeURIComponent(symbolParam);
-    var r = await fetch(url, {signal: AbortSignal.timeout(8000)});
-    
-    if(r.ok){
-      var prices = await r.json();
-      Object.keys(prices).forEach(function(sym){
-        var price = prices[sym].price;
-        var prev = wsPrices[sym] ? wsPrices[sym].price : price;
-        var change = price - prev;
-        var changePct = prev ? ((change / prev) * 100) : 0;
-        wsPrices[sym] = {price: price, prev: prev, change: change, changePct: changePct};
-        anySuccess = true;
-      });
-    }
-  }catch(ex){
-    console.warn('Worker fetch failed:', ex);
-  }
 
-  if(anySuccess){
-    wsReady = true;
-    var dot = document.getElementById('live-dot'), txt = document.getElementById('live-txt');
-    if(dot)dot.className = 'live-dot on';
-    if(txt){txt.textContent = 'LIVE'; txt.className = 'live-txt on';}
-  }else{
-    var dot = document.getElementById('live-dot');
-    if(dot)dot.className = 'live-dot off';
-  }
-  renderPrices();
-}
+  // Fetch all symbols in parallel - individual calls most reliable on free tier
+  await Promise.allSettled(syms.map(async function(sym){
+    try{
+      var url=TD_BASE+'/price?symbol='+encodeURIComponent(sym)+'&apikey='+TD_KEY;
+      var r=await fetch(url,{signal:AbortSignal.timeout(8000)});
+      if(r.ok){
+        var d=await r.json();
+        if(d&&d.price){
           var price=parseFloat(d.price);
           var prev=wsPrices[sym]?wsPrices[sym].price:price;
           var change=price-prev;
