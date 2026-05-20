@@ -1,6 +1,7 @@
-[observability.logs]
-enabled = true
-invocation_logs = true
+name = "signal-tracker"
+main = "worker.js"
+compatibility_date = "2026-05-20"
 
-[observability.traces]
-enabled = true
+[assets]
+directory = "."
+not_found_handling = "single-page-application"
