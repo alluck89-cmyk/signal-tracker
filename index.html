@@ -345,11 +345,10 @@ function fmt(n){return n?Number(n).toLocaleString():'—';}
 function shouldFireAlert(key){var now=Date.now();if(!firedAlerts[key]||now-firedAlerts[key]>ALERT_COOLDOWN_MS){firedAlerts[key]=now;return true;}return false;}
 
 // ─── Finnhub WebSocket ── bypasses CORS, works on GitHub Pages ───────────────
-var FKEY = 'd86ga39r01qgiu45abg0';
-var wsConn = null;
-var wsReady = false;
+var TD_KEY = '17045e3606d545e0960bc743c5ad1aef';
+var TD_BASE = 'https://api.twelvedata.com';
 var wsPrices = {};
-var wsReconnTimer = null;
+var wsReady = false;
 
 function getSymbols(){
   var syms=[];
@@ -357,67 +356,39 @@ function getSymbols(){
   return syms;
 }
 
-function connectWS(){
-  if(wsConn&&(wsConn.readyState===0||wsConn.readyState===1))return;
+function connectWS(){fetchREST();}
+
+async function fetchREST(){
+  var syms=['SPY'].concat(getSymbols().filter(function(s){return s!=='SPY';}));
   try{
-    wsConn=new WebSocket('wss://ws.finnhub.io?token='+FKEY);
-    wsConn.onopen=function(){
+    // Twelve Data batch price endpoint - all symbols in one call
+    var url=TD_BASE+'/price?symbol='+encodeURIComponent(syms.join(','))+'&apikey='+TD_KEY;
+    var r=await fetch(url,{signal:AbortSignal.timeout(8000)});
+    if(r.ok){
+      var d=await r.json();
+      syms.forEach(function(sym){
+        var entry=syms.length===1?d:d[sym];
+        if(entry&&entry.price){
+          var price=parseFloat(entry.price);
+          var prev=wsPrices[sym]?wsPrices[sym].price:price;
+          wsPrices[sym]={price:price,prev:prev,change:price-prev,changePct:prev?((price-prev)/prev)*100:0};
+        }
+      });
       wsReady=true;
       var dot=document.getElementById('live-dot'),txt=document.getElementById('live-txt');
       if(dot)dot.className='live-dot on';
       if(txt){txt.textContent='LIVE';txt.className='live-txt on';}
-      // Subscribe to SPY + all tracked tickers
-      var syms=['SPY'].concat(getSymbols().filter(function(s){return s!=='SPY';}));
-      syms.forEach(function(sym){wsConn.send(JSON.stringify({type:'subscribe',symbol:sym}));});
-    };
-    wsConn.onmessage=function(e){
-      try{
-        var msg=JSON.parse(e.data);
-        if(msg.type==='trade'&&msg.data){
-          msg.data.forEach(function(t){
-            var sym=t.s,price=t.p;
-            if(!wsPrices[sym])wsPrices[sym]={price:price,prev:price,change:0,changePct:0};
-            var prev=wsPrices[sym].prev||price;
-            wsPrices[sym].price=price;
-            wsPrices[sym].change=price-prev;
-            wsPrices[sym].changePct=prev?((price-prev)/prev)*100:0;
-          });
-          renderPrices();
-        }
-      }catch(ex){}
-    };
-    wsConn.onclose=function(){
-      wsReady=false;
-      var dot=document.getElementById('live-dot');if(dot)dot.className='live-dot off';
-      if(wsReconnTimer)clearTimeout(wsReconnTimer);
-      wsReconnTimer=setTimeout(connectWS,5000);
-    };
-    wsConn.onerror=function(){fetchREST();};
-  }catch(ex){fetchREST();}
-}
-
-// REST fallback — also works once Finnhub account is fully active
-async function fetchREST(){
-  var syms=['SPY'].concat(getSymbols().filter(function(s){return s!=='SPY';}));
-  await Promise.allSettled(syms.map(async function(sym){
-    try{
-      var r=await fetch('https://finnhub.io/api/v1/quote?symbol='+sym+'&token='+FKEY,{signal:AbortSignal.timeout(6000)});
-      if(r.ok){var d=await r.json();if(d&&d.c){wsPrices[sym]={price:d.c,prev:d.pc||d.c,change:d.d||0,changePct:d.dp||0};}}
-    }catch(ex){}
-  }));
+    }
+  }catch(ex){
+    var dot=document.getElementById('live-dot');if(dot)dot.className='live-dot off';
+    console.warn('Twelve Data error:',ex);
+  }
   renderPrices();
 }
 
 // ─── Main fetch loop ──────────────────────────────────────────────────────────
-function fetchAll(){
-  // Subscribe new symbols if tracker has changed
-  if(wsReady&&wsConn){
-    var syms=['SPY'].concat(getSymbols().filter(function(s){return s!=='SPY';}));
-    syms.forEach(function(sym){
-      if(!wsPrices[sym])wsConn.send(JSON.stringify({type:'subscribe',symbol:sym}));
-    });
-  }else if(!wsReady){
-    fetchREST();
+function fetchAll(){fetchREST();}
+
   }
 }
 
@@ -849,7 +820,7 @@ refreshTimer=setInterval(fetchAll,REFRESH_MS);
 document.addEventListener('visibilitychange',function(){
   if(document.hidden){
     clearInterval(refreshTimer);
-    if(wsConn&&wsConn.readyState===1)wsConn.close();
+    // pause fetch
   }else{
     connectWS();
     fetchREST();
