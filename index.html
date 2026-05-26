@@ -315,7 +315,7 @@ textarea:focus{border-color:#333}
 // ─── Finnhub API key ──────────────────────────────────────────────────────────
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-var REFRESH_MS = 15000;
+var REFRESH_MS = 15000; // 15 seconds
 var ALERT_PCT  = 5;
 var ES_ALERT_PTS = 10;
 var SK = 'signal-td-v1';
@@ -359,46 +359,37 @@ function getSymbols(){
 function connectWS(){fetchREST();}
 
 async function fetchREST(){
+  // ONE batch call for ALL symbols = 1 API credit per refresh instead of 1 per symbol
   var syms=['SPY'].concat(getSymbols().filter(function(s){return s!=='SPY';}));
   var anySuccess=false;
 
-  // Fetch all symbols in parallel
-  await Promise.allSettled(syms.map(async function(sym){
-    try{
-      var url=TD_BASE+'/price?symbol='+encodeURIComponent(sym)+'&apikey='+TD_KEY;
-      var r=await fetch(url,{signal:AbortSignal.timeout(8000)});
-      if(r.ok){
-        var d=await r.json();
-        if(d&&d.price&&parseFloat(d.price)>0){
-          var price=parseFloat(d.price);
+  try{
+    var batchUrl=TD_BASE+'/price?symbol='+syms.join(',')+'&apikey='+TD_KEY;
+    var r=await fetch(batchUrl,{signal:AbortSignal.timeout(10000)});
+    if(r.ok){
+      var d=await r.json();
+      // Single symbol returns {price:"123"}, multiple returns {AAPL:{price:"123"}, SPY:{price:"456"}}
+      syms.forEach(function(sym){
+        var entry=syms.length===1?d:d[sym];
+        if(entry&&entry.price&&parseFloat(entry.price)>0){
+          var price=parseFloat(entry.price);
           var prev=wsPrices[sym]?wsPrices[sym].price:price;
-          var change=price-prev;
-          var changePct=prev?((change/prev)*100):0;
-          wsPrices[sym]={price:price,prev:prev,change:change,changePct:changePct,stale:false};
+          wsPrices[sym]={price:price,prev:prev,change:price-prev,changePct:prev?((price-prev)/prev)*100:0,stale:false};
           anySuccess=true;
         }else if(wsPrices[sym]&&wsPrices[sym].price){
-          // Market closed — keep last known price, mark as stale
           wsPrices[sym].stale=true;
           anySuccess=true;
         }
-      }
-    }catch(ex){console.warn(sym+' fetch failed');}
-  }));
-
-  // Fetch ES1! futures directly
-  try{
-    var esUrl=TD_BASE+'/price?symbol=ES1%3A1&apikey='+TD_KEY;
-    var esR=await fetch(esUrl,{signal:AbortSignal.timeout(8000)});
-    if(esR.ok){
-      var esD=await esR.json();
-      if(esD&&esD.price){
-        var esPrice=parseFloat(esD.price);
-        var esPrev=wsPrices['ES1!']?wsPrices['ES1!'].price:esPrice;
-        wsPrices['ES1!']={price:esPrice,prev:esPrev,change:esPrice-esPrev,changePct:esPrev?((esPrice-esPrev)/esPrev)*100:0};
-        anySuccess=true;
-      }
+      });
     }
-  }catch(ex){console.warn('ES1! fetch failed, using SPY proxy');}
+  }catch(ex){
+    // On error keep last known prices as stale
+    console.warn('Batch fetch failed:',ex.message);
+    if(Object.keys(wsPrices).length>0){
+      Object.keys(wsPrices).forEach(function(s){if(wsPrices[s])wsPrices[s].stale=true;});
+      anySuccess=true;
+    }
+  }
 
   if(anySuccess){
     wsReady=true;
