@@ -318,7 +318,7 @@ textarea:focus{border-color:#333}
 var REFRESH_MS = 15000; // 15 seconds
 var ALERT_PCT  = 5;
 var ES_ALERT_PTS = 10;
-var SK = 'signal-td-v1';
+var SK = 'signals-v1'; // PERMANENT - never change this key
 var LEVELS_SK = 'es-levels-v2';
 
 // ─── ES Levels ────────────────────────────────────────────────────────────────
@@ -359,7 +359,7 @@ function getSymbols(){
 function connectWS(){fetchREST();}
 
 async function fetchREST(){
-  // ONE batch call for ALL symbols = 1 API credit per refresh instead of 1 per symbol
+  // ONE batch call = 1 API credit regardless of symbol count
   var syms=['SPY'].concat(getSymbols().filter(function(s){return s!=='SPY';}));
   var anySuccess=false;
 
@@ -368,9 +368,13 @@ async function fetchREST(){
     var r=await fetch(batchUrl,{signal:AbortSignal.timeout(10000)});
     if(r.ok){
       var d=await r.json();
-      // Single symbol returns {price:"123"}, multiple returns {AAPL:{price:"123"}, SPY:{price:"456"}}
+      // Handle both single {price:"x"} and batch {SYM:{price:"x"}} responses
       syms.forEach(function(sym){
-        var entry=syms.length===1?d:d[sym];
+        // Try batch format first, then single format
+        var entry=d[sym]||null;
+        // If no batch entry and only 1 symbol, use root response
+        if(!entry&&syms.length===1&&d.price)entry=d;
+        
         if(entry&&entry.price&&parseFloat(entry.price)>0){
           var price=parseFloat(entry.price);
           var prev=wsPrices[sym]?wsPrices[sym].price:price;
@@ -381,9 +385,13 @@ async function fetchREST(){
           anySuccess=true;
         }
       });
+
+      // Also check if response has SPY data for ES proxy
+      if(wsPrices['SPY']&&wsPrices['SPY'].price&&!wsPrices['SPY'].stale){
+        anySuccess=true;
+      }
     }
   }catch(ex){
-    // On error keep last known prices as stale
     console.warn('Batch fetch failed:',ex.message);
     if(Object.keys(wsPrices).length>0){
       Object.keys(wsPrices).forEach(function(s){if(wsPrices[s])wsPrices[s].stale=true;});
@@ -465,8 +473,8 @@ function renderPrices(){
 
     if(dot){dot.className='live-dot on';}
     if(txt){txt.textContent=timeStr;txt.className='live-txt on';}
-  }else if(wsPrices['SPY']&&wsPrices['SPY'].stale){
-    // Market closed — show last price with indicator
+  }else if(wsPrices['SPY']&&wsPrices['SPY'].price){
+    // Have SPY price but marked stale — show it anyway with CLOSED indicator
     if(dot)dot.className='live-dot off';
     if(txt){txt.textContent='CLOSED';txt.className='live-txt off';}
     var elLbl=document.getElementById('es-lbl');if(elLbl)elLbl.textContent='LAST CLOSE';
@@ -627,10 +635,20 @@ function updateESDisplay(){
 // ─── Storage ──────────────────────────────────────────────────────────────────
 async function loadT(){
   var data=null;
-  try{if(window.storage){var r=await window.storage.get(SK);if(r&&r.value)data=JSON.parse(r.value);}}catch(e){}
-  if(!data){try{var ls=localStorage.getItem(SK);if(ls)data=JSON.parse(ls);}catch(e){}}
-  if(data&&data.length>0){tracked=data;}
-  else{
+  // Try all possible old storage keys to migrate data
+  var keys=['signals-v1','signal-td-v1','signal-finnhub-v1','signal-live-v1'];
+  for(var ki=0;ki<keys.length;ki++){
+    try{var ls=localStorage.getItem(keys[ki]);if(ls){data=JSON.parse(ls);break;}}catch(e){}
+  }
+  if(data&&data.length>0){
+    tracked=data;
+    // Merge any new PRELOADED signals not already in tracker
+    PRELOADED.forEach(function(s,i){
+      if(!tracked.some(function(t){return t.ticker===s.ticker;})){
+        tracked.unshift(Object.assign({},s,{id:s.ticker+'-new-'+i,currentPrice:null,priceChangePct:null,statusReason:null,note:null,updatedAction:null,stillValid:true,addedAt:new Date().toISOString(),lastValidated:null}));
+      }
+    });
+  }else{
     tracked=PRELOADED.map(function(s,i){return Object.assign({},s,{id:s.ticker+'-'+i,currentPrice:null,priceChangePct:null,statusReason:null,note:null,updatedAction:null,stillValid:true,addedAt:new Date().toISOString(),lastValidated:null});});
   }
   saveT();rt();
@@ -808,21 +826,32 @@ function rt(){
 
 // ─── Pre-loaded signals ───────────────────────────────────────────────────────
 var PRELOADED=[
+  // ── Original signals ──────────────────────────────────────────────────────
   {ticker:'SONY',action:'WATCH',confidence:'MEDIUM',reasoning:'$20 support floor. Sep $25 calls at $1. $4B Hipgnosis deal, $380M image sensor subsidy, JPY 500B buyback.',entryPrice:'22.79',targetPrice:'30',stopPrice:'20',timeframe:'September',catalysts:['$20 floor','Hipgnosis $4B','image sensor subsidy'],isOption:true,optionDetails:'September $25 CALLS at ~$1',validationStatus:'ACTIVE'},
   {ticker:'UBER',action:'BUY',confidence:'HIGH',reasoning:'First profitable real-world AI use case. At $75 — makes 3x TSLA profits at 95% of TSLA valuation. Target $120-150.',entryPrice:'75',targetPrice:'135',stopPrice:null,timeframe:'Long term',catalysts:['robotaxi deployment','Rivian AV partnership','3x TSLA profits'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
   {ticker:'TLT',action:'BUY',confidence:'MEDIUM',reasoning:'Bottom at $83-84. Every 1% move in rates = 15-16% TLT move. Fed forced to act before 6-7% yields.',entryPrice:'83',targetPrice:'100',stopPrice:'66',timeframe:'Medium-long term',catalysts:['Fed forced to act','disinflation scenario','6-7% yields unsustainable'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
   {ticker:'MSFT',action:'BUY',confidence:'HIGH',reasoning:'Line in sand at $350. Currently $420. Core AI holding. Ackman new position.',entryPrice:'350',targetPrice:null,stopPrice:'350',timeframe:'Long term',catalysts:['Intelligent Cloud AI','Ackman position','Azure AI'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
-  {ticker:'ORCL',action:'BUY',confidence:'MEDIUM',reasoning:'Still likes at $190. Currently at entry. Analyst target $245. AI cloud defense contracts.',entryPrice:'190',targetPrice:'245',stopPrice:null,timeframe:'Medium term',catalysts:['AI cloud defense','database AI','strong FY2026'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
+  {ticker:'ORCL',action:'BUY',confidence:'MEDIUM',reasoning:'Still likes at $190. Analyst target $245. AI cloud defense contracts.',entryPrice:'190',targetPrice:'245',stopPrice:null,timeframe:'Medium term',catalysts:['AI cloud defense','database AI','strong FY2026'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
   {ticker:'AKAM',action:'BUY',confidence:'MEDIUM',reasoning:'Buy on dips from $150. $1.8B AI deal, Citi $160, BofA $175 targets.',entryPrice:'150',targetPrice:'175',stopPrice:null,timeframe:'Medium term',catalysts:['$1.8B AI deal','NVIDIA partnership','Cloud +40% YoY'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
   {ticker:'AMZN',action:'BUY',confidence:'HIGH',reasoning:'Older orderflow stock, still robust at $250. Appaloosa doubled stake. AWS AI growth.',entryPrice:'250',targetPrice:null,stopPrice:null,timeframe:'Long term',catalysts:['AWS AI growth','Appaloosa doubled stake'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
   {ticker:'QCOM',action:'BUY',confidence:'MEDIUM',reasoning:'Buy on dips toward $300. Hit record $237 on data-center chip news.',entryPrice:'214',targetPrice:'300',stopPrice:null,timeframe:'Medium term',catalysts:['data center chip','AI semiconductor'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
   {ticker:'INTC',action:'BUY',confidence:'HIGH',reasoning:'Originally shared under $20. Target $200. Apple foundry confirmed.',entryPrice:'100',targetPrice:'200',stopPrice:null,timeframe:'Long term',catalysts:['Apple foundry','AI data center'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
-  {ticker:'TSLA',action:'BUY',confidence:'MEDIUM',reasoning:'Narrative trade to $490. FSD Belgium approved. $25B 2026 capex.',entryPrice:'449',targetPrice:'490',stopPrice:null,timeframe:'Near term',catalysts:['FSD approval','robotaxi','$25B capex'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
-  {ticker:'AAPL',action:'BUY',confidence:'MEDIUM',reasoning:'Likes at $298. Sleeping giant — AI mainstream gives AAPL a role. Evercore $365 target.',entryPrice:'298',targetPrice:'365',stopPrice:'270',timeframe:'Long term',catalysts:['AI mainstream','new CEO Ternus','Evercore $365'],isOption:true,optionDetails:'October $315 calls at $3-4',validationStatus:'ACTIVE'},
-  {ticker:'MU',action:'HOLD',confidence:'HIGH',reasoning:'Original entry $80. BofA $950 target. HBM fully allocated through 2026.',entryPrice:'700',targetPrice:'950',stopPrice:'600',timeframe:null,catalysts:['HBM allocated','BofA $950','AI memory'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
+  {ticker:'TSLA',action:'BUY',confidence:'MEDIUM',reasoning:'Bullish above $400 targeting $500s. Originally shared near $350s. FSD expansion, SpaceX merger speculation 2027. EU registrations +46% April.',entryPrice:'400',targetPrice:'500',stopPrice:'400',timeframe:'Near-medium term',catalysts:['$400 floor holding','EU registrations +46%','robotaxi','SpaceX/TSLA merger speculation'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
+  {ticker:'AAPL',action:'BUY',confidence:'HIGH',reasoning:'Originally shared at $192, then $298. Now $310s — no bear case above $280. Target $330+. Sleeping giant for AI.',entryPrice:'298',targetPrice:'330',stopPrice:'280',timeframe:'Long term',catalysts:['AI mainstream','new CEO Ternus','Evercore $365','no bear case above $280'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
+  {ticker:'MU',action:'HOLD',confidence:'HIGH',reasoning:'Original entry $80. BofA $950 target hit — reassess. Now at all-time high $963. HBM fully allocated. America 10th most valuable company.',entryPrice:'700',targetPrice:'963',stopPrice:'800',timeframe:'Reassess now',catalysts:['HBM allocated','BofA $950 hit','AI memory supercycle','SK Hynix joining $1T club'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
   {ticker:'NOK',action:'BUY',confidence:'MEDIUM',reasoning:'Up from $3 to $13. Still likes push into $20s. Stop at $12.',entryPrice:'10',targetPrice:'20',stopPrice:'12',timeframe:null,catalysts:['5G infrastructure','momentum'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
   {ticker:'CRWV',action:'WATCH',confidence:'MEDIUM',reasoning:'$100B backlog. Meta $21B contract. Jun 18 $150 calls at ~$3.',entryPrice:'119',targetPrice:'150',stopPrice:null,timeframe:'June 18',catalysts:['$100B backlog','Meta $21B contract'],isOption:true,optionDetails:'June 18th $150 CALLS at ~$3',validationStatus:'ACTIVE'},
   {ticker:'MAMA',action:'WATCH',confidence:'LOW',reasoning:'Speculative at $14 targeting $40-50. Non-consensus play.',entryPrice:'14',targetPrice:'45',stopPrice:null,timeframe:'Medium term',catalysts:['price action breakout'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
+  // ── Recent signals from last 5 JSON posts ─────────────────────────────────
+  {ticker:'NVDA',action:'BUY',confidence:'MEDIUM',reasoning:'Author likes at $220 post-earnings with $215 line in sand. Targeting retest of $232-234. Tight risk — only $5 from stop.',entryPrice:'220',targetPrice:'233',stopPrice:'215',timeframe:'Near term',catalysts:['post-earnings constructive','AI infrastructure demand','retest $232-234'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
+  {ticker:'SPCE',action:'WATCH',confidence:'LOW',reasoning:'Pure lotto play on SpaceX IPO fat-finger thesis. Retail may confuse SPCE with SPCX ticker. Jun 18 $3.50 calls at 20-30 cents. Most likely goes to 0.',entryPrice:'2.47',targetPrice:'3.50',stopPrice:null,timeframe:'June 18',catalysts:['SpaceX IPO fat-finger thesis','retail confusion SPCE vs SPCX'],isOption:true,optionDetails:'June 18th $3.50 CALLS at 20-30 cents — lotto only',validationStatus:'ACTIVE'},
+  {ticker:'GOOGL',action:'WATCH',confidence:'MEDIUM',reasoning:'Author prefers Google on dips to $350-360 as better AI play than SpaceX IPO. Wait for the dip.',entryPrice:'355',targetPrice:null,stopPrice:null,timeframe:'Medium term',catalysts:['AI infrastructure','search dominance','better value than SPCX'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
+  {ticker:'VLUE',action:'WATCH',confidence:'MEDIUM',reasoning:'Value ETF getting AI tailwind. Extended at $187 but pullbacks shallow. Above $220 targets $250s.',entryPrice:'187',targetPrice:'250',stopPrice:null,timeframe:'Medium term',catalysts:['AI infusion into value stocks','value rotation'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
+  {ticker:'SCHD',action:'WATCH',confidence:'MEDIUM',reasoning:'Massive unusual Friday rally — signals market marrying traditional value with AI tailwinds.',entryPrice:null,targetPrice:null,stopPrice:null,timeframe:'Medium term',catalysts:['unusual Friday rally','value meets AI thesis'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
+  {ticker:'VSCO',action:'BUY',confidence:'MEDIUM',reasoning:'Turnaround retail play at $50. Working class wage growth driving VS core customer. Gen Z stealing from Skims. Earnings June 3. Dips to low $40s better entry.',entryPrice:'50',targetPrice:'70',stopPrice:null,timeframe:'September',catalysts:['working class wage growth','Gen Z from Skims','earnings June 3','UBS $81 target'],isOption:true,optionDetails:'September $50 CALLS at $4-5',validationStatus:'ACTIVE'},
+  {ticker:'SOFI',action:'BUY',confidence:'MEDIUM',reasoning:'Originally called at $10, tripled to $32. Now $16.72 — selling overdone. CEO insider buying. Two plays: sell $14-15 puts for $5, or Jan 2028 $30-32 LEAPS at $2-3. Long term target $40.',entryPrice:'18',targetPrice:'40',stopPrice:'14',timeframe:'2-3 years',catalysts:['CEO insider buying','fintech expansion','Q1 EPS beat','Jan 2028 LEAPS cheap'],isOption:true,optionDetails:'TWO PLAYS: (1) Sell $14-15 PUTS for $5. (2) Buy Jan 2028 $30-32 LEAPS at $2-3',validationStatus:'ACTIVE'},
+  {ticker:'DJT',action:'WATCH',confidence:'LOW',reasoning:'Pure Bitcoin proxy LEAPS play. $2B market cap vs ~$1.5B book value + $700M Bitcoin. Jan 2028 $15 calls at ~$2. If Bitcoin rallies this could rip. Most likely goes to 0.',entryPrice:'8',targetPrice:'15',stopPrice:null,timeframe:'January 2028',catalysts:['Bitcoin rally','$700M Bitcoin holdings','book value near market cap'],isOption:true,optionDetails:'January 2028 $15 CALLS at ~$2 — pure speculation',validationStatus:'ACTIVE'},
+  {ticker:'IBM',action:'BUY',confidence:'MEDIUM',reasoning:'Posted April 26 at ~$220. No bear case below $200. Target $300. AI revenue inflection coming in enterprise software. $2B quantum foundry with US Dept of Commerce announced May 21 — already up 15% since post.',entryPrice:'220',targetPrice:'300',stopPrice:'200',timeframe:'1 year',catalysts:['$2B quantum foundry','IBM-Anthropic partnership','Red Hat AI','95% of Fortune 500 clients','RBC $300 target'],isOption:false,optionDetails:null,validationStatus:'ACTIVE'},
 ];
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
