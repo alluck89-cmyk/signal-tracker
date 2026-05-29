@@ -362,11 +362,17 @@ async function fetchREST(){
   var syms=['SPY'].concat(getSymbols().filter(function(s){return s!=='SPY';}));
   var anySuccess=false;
 
+  // Show fetching status
+  var esT=document.getElementById('es-time');
+  if(esT)esT.textContent='fetching...'+syms.length+' syms';
+  
   try{
     var batchUrl=TD_BASE+'/price?symbol='+syms.join(',')+'&apikey='+TD_KEY;
+    if(esT)esT.textContent='calling worker...';
     var r=await fetch(batchUrl,{signal:AbortSignal.timeout(10000)});
     if(!r.ok){throw new Error('HTTP '+r.status);}
     var d=await r.json();
+    if(esT)esT.textContent='got response: '+Object.keys(d).length+' syms';
     console.log('Batch response keys:',Object.keys(d).join(','));
 
     // Copilot worker returns {SPY:{price:"x"}, AAPL:{price:"x"}} for multiple symbols
@@ -406,6 +412,9 @@ async function fetchREST(){
     if(txt){txt.textContent='LIVE';txt.className='live-txt on';}
   }else{
     var dot=document.getElementById('live-dot');if(dot)dot.className='live-dot off';
+    // Show debug info in ES time element
+    var dbg=document.getElementById('es-time');
+    if(dbg)dbg.textContent='fetch failed - check console';
   }
   renderPrices();
 }
