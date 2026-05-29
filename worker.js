@@ -1,68 +1,75 @@
-addEventListener('fetch', event => {
-  event.respondWith(handleRequest(event.request));
-});
+/**
+ * Cloudflare Worker for Signal Tracker
+ * Proxies price requests to Finnhub API
+ * Bypasses CORS issues when called from GitHub Pages
+ */
 
-async function handleRequest(request) {
-  const url = new URL(request.url);
-
-  if (request.method === 'OPTIONS') {
-    return new Response(null, {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': '*',
-      }
-    });
-  }
-
-  if (url.pathname === '/price') {
-    const symbolParam = url.searchParams.get('symbol');
-    
-    if (!symbolParam) {
-      return new Response(JSON.stringify({error: 'Missing symbol parameter'}), {
-        status: 400,
-        headers: {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}
-      });
-    }
-
-    const symbols = symbolParam.split(',').map(s => s.trim());
-    const apiKey = url.searchParams.get('apikey') || '17045e3606d545e0960bc743c5ad1aef';
-
+export default {
+  async fetch(request, env) {
     try {
-      // Batch fetch all symbols in parallel
-      const promises = symbols.map(sym =>
-        fetch(`https://api.twelvedata.com/price?symbol=${sym}&apikey=${apiKey}`)
-          .then(r => r.json())
-          .then(data => ({ symbol: sym, data }))
-          .catch(err => ({ symbol: sym, error: err.message }))
-      );
+      const url = new URL(request.url);
+      const symbol = url.searchParams.get('symbol');
+      const apikey = url.searchParams.get('apikey');
 
-      const results = await Promise.all(promises);
-      
-      // Transform into batch response format
-      const batchResponse = {};
-      results.forEach(({ symbol, data, error }) => {
-        if (error) {
-          batchResponse[symbol] = { error };
-        } else {
-          batchResponse[symbol] = data;
+      if (!symbol || !apikey) {
+        return new Response(JSON.stringify({ error: 'Missing symbol or apikey' }), {
+          status: 400,
+          headers: { 
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
+
+      const symbols = symbol.split(',').map(s => s.trim());
+      const result = {};
+
+      // Fetch prices for each symbol in parallel
+      const promises = symbols.map(async (sym) => {
+        try {
+          const finnhubUrl = `https://finnhub.io/api/v1/quote?symbol=${sym}&token=${apikey}`;
+          const res = await fetch(finnhubUrl);
+          const data = await res.json();
+
+          // Finnhub returns: {c: current, pc: previous close, h: high, l: low, o: open, t: timestamp}
+          if (data.c && data.c > 0) {
+            result[sym] = {
+              price: data.c.toString(),
+              change: (data.c - data.pc).toFixed(2),
+              changePct: ((data.c - data.pc) / data.pc * 100).toFixed(2),
+              high: data.h,
+              low: data.l,
+              open: data.o,
+              timestamp: data.t
+            };
+          } else {
+            result[sym] = { price: null, error: 'No valid price data' };
+          }
+        } catch (err) {
+          console.error(`Error fetching ${sym}:`, err.message);
+          result[sym] = { price: null, error: err.message };
         }
       });
 
-      return new Response(JSON.stringify(batchResponse), {
+      await Promise.all(promises);
+
+      return new Response(JSON.stringify(result), {
         headers: {
           'Content-Type': 'application/json',
           'Access-Control-Allow-Origin': '*',
-          'Cache-Control': 'no-store'
+          'Access-Control-Allow-Methods': 'GET, OPTIONS',
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
         }
       });
-    } catch(e) {
-      return new Response(JSON.stringify({error: e.message}), {
+    } catch (err) {
+      console.error('Worker error:', err.message);
+      return new Response(JSON.stringify({ error: err.message }), {
         status: 500,
-        headers: {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}
+        headers: { 
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }
       });
     }
   }
-
-  return new Response('Signal Tracker API Proxy', { status: 200 });
-}
+};
