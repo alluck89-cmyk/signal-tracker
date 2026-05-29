@@ -393,10 +393,13 @@ async function fetchREST(){
       }
       if(entry&&entry.price&&parseFloat(entry.price)>0){
         var price=parseFloat(entry.price);
-        var prev=wsPrices[sym]?wsPrices[sym].price:price;
-        wsPrices[sym]={price:price,prev:prev,change:price-prev,changePct:prev?((price-prev)/prev)*100:0,stale:false};
+        var prev=entry.previous_close?parseFloat(entry.previous_close):(wsPrices[sym]?wsPrices[sym].price:price);
+        var chg=entry.change?parseFloat(entry.change):(price-prev);
+        var chgPct=entry.percent_change?parseFloat(entry.percent_change):(prev?((price-prev)/prev)*100:0);
+        var isOpen=entry.is_market_open==='true'||entry.is_market_open===true;
+        wsPrices[sym]={price:price,prev:prev,change:chg,changePct:chgPct,stale:!isOpen,isOpen:isOpen};
         anySuccess=true;
-        console.log(sym,'=',price);
+        console.log(sym,'=',price,'open:',isOpen);
       }else if(wsPrices[sym]&&wsPrices[sym].price){
         wsPrices[sym].stale=true;
         anySuccess=true;
@@ -459,7 +462,8 @@ function renderPrices(){
     ['es-price','es-price2'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent=ps;el.style.color=chgCol;}});
     ['es-chg','es-chg2'].forEach(function(id){var el=document.getElementById(id);if(el){el.textContent=chgStr;el.style.color=chgCol;}});
     ['es-time','es-time2'].forEach(function(id){var el=document.getElementById(id);if(el)el.textContent=timeStr;});
-    var elLbl=document.getElementById('es-lbl');if(elLbl)elLbl.textContent=wsPrices['ES1!']?'LIVE FUTURES ES1!':'LIVE (SPY×10 proxy)';
+    var isSpyOpen=wsPrices['SPY']&&wsPrices['SPY'].isOpen;
+    var elLbl=document.getElementById('es-lbl');if(elLbl)elLbl.textContent=isSpyOpen?'LIVE (SPY×10)':'LAST CLOSE (SPY×10)';
     var elNow=document.getElementById('es-now');if(elNow)elNow.textContent=ps;
 
     // Distances
