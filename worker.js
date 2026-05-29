@@ -30,36 +30,46 @@ async function handleRequest(request) {
     const symbols = symbolParam.split(',').map(s => s.trim()).filter(Boolean);
     const results = {};
 
-    await Promise.all(symbols.map(async sym => {
-      try {
-        // Use /quote which returns previous_close when market is closed
-        const resp = await fetch(
-          `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(sym)}&apikey=${apiKey}`
-        );
-        const data = await resp.json();
+    // Process in chunks of 8 to stay within rate limit
+    // Wait 500ms between chunks
+    const chunkSize = 8;
+    for (let i = 0; i < symbols.length; i += chunkSize) {
+      const chunk = symbols.slice(i, i + chunkSize);
+      
+      await Promise.all(chunk.map(async sym => {
+        try {
+          const resp = await fetch(
+            `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(sym)}&apikey=${apiKey}`
+          );
+          const data = await resp.json();
 
-        // Use close price, fall back to previous_close when market closed
-        const price = (data.close && parseFloat(data.close) > 0)
-          ? data.close
-          : (data.previous_close && parseFloat(data.previous_close) > 0)
-            ? data.previous_close
-            : null;
+          const price = (data.close && parseFloat(data.close) > 0)
+            ? data.close
+            : (data.previous_close && parseFloat(data.previous_close) > 0)
+              ? data.previous_close
+              : null;
 
-        if (price) {
-          results[sym] = {
-            price: price,
-            previous_close: data.previous_close,
-            is_market_open: data.is_market_open,
-            change: data.change,
-            percent_change: data.percent_change
-          };
-        } else {
-          results[sym] = { error: 'No price data', raw: data };
+          if (price) {
+            results[sym] = {
+              price: price,
+              previous_close: data.previous_close,
+              is_market_open: data.is_market_open,
+              change: data.change,
+              percent_change: data.percent_change
+            };
+          } else {
+            results[sym] = { error: 'No price data' };
+          }
+        } catch(e) {
+          results[sym] = { error: e.message };
         }
-      } catch(e) {
-        results[sym] = { error: e.message };
+      }));
+
+      // Wait 600ms between chunks to respect rate limit
+      if (i + chunkSize < symbols.length) {
+        await new Promise(resolve => setTimeout(resolve, 600));
       }
-    }));
+    }
 
     return new Response(JSON.stringify(results), {
       status: 200,
@@ -71,7 +81,7 @@ async function handleRequest(request) {
     });
   }
 
-  return new Response('Signal Tracker API Proxy v3', {
+  return new Response('Signal Tracker API Proxy v4', {
     status: 200,
     headers: {...corsHeaders, 'Content-Type': 'text/plain'}
   });
