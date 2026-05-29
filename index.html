@@ -322,7 +322,7 @@ var SK = 'signals-v1'; // PERMANENT - never change this key
 var LEVELS_SK = 'es-levels-v2';
 
 // ─── ES Levels ────────────────────────────────────────────────────────────────
-var LEVELS = {res:7500, bull:7470, target:7600, swing:7223, support1:7350};
+var LEVELS = {res:7560, bull:7480, target:7600, swing:7300, support1:7403};
 
 // ─── Ticker colors ────────────────────────────────────────────────────────────
 var TICK_COL = {AAPL:'#00e676',MU:'#40c4ff',INTC:'#00e676',TSLA:'#00e676',QCOM:'#ffd600',DIS:'#ffd600',DJT:'#ff9100',CRWV:'#ff9100',SONY:'#40c4ff',NOK:'#888',CC:'#ff9100',TLT:'#40c4ff',MSFT:'#00e676',META:'#ffd600',ORCL:'#00e676',AKAM:'#00e676',AMZN:'#00e676',NVDA:'#ffd600',SMH:'#ffd600',UBER:'#00e676',MAMA:'#ff9100'};
@@ -855,27 +855,21 @@ var PRELOADED=[
 ];
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
-loadT();
 loadLevels();
 updateNotifBtn();
 if(Notification.permission==='granted')notifOK=true;
 
-// Connect WebSocket for live prices — WebSocket bypasses CORS
-connectWS();
-
-// Also try REST immediately as backup
-fetchREST();
-
-// Periodic check every 15s to subscribe new symbols + REST fallback
-refreshTimer=setInterval(fetchAll,REFRESH_MS);
+// Wait for loadT() to finish before fetching prices so getSymbols() has all tickers
+loadT().then(function(){
+  fetchREST();
+  refreshTimer=setInterval(fetchAll,REFRESH_MS);
+});
 
 // Pause when hidden, resume when visible
 document.addEventListener('visibilitychange',function(){
   if(document.hidden){
     clearInterval(refreshTimer);
-    // pause fetch
   }else{
-    connectWS();
     fetchREST();
     refreshTimer=setInterval(fetchAll,REFRESH_MS);
   }
