@@ -359,40 +359,40 @@ function getSymbols(){
 function connectWS(){fetchREST();}
 
 async function fetchREST(){
-  // ONE batch call = 1 API credit regardless of symbol count
   var syms=['SPY'].concat(getSymbols().filter(function(s){return s!=='SPY';}));
   var anySuccess=false;
 
   try{
     var batchUrl=TD_BASE+'/price?symbol='+syms.join(',')+'&apikey='+TD_KEY;
     var r=await fetch(batchUrl,{signal:AbortSignal.timeout(10000)});
-    if(r.ok){
-      var d=await r.json();
-      // Handle both single {price:"x"} and batch {SYM:{price:"x"}} responses
-      syms.forEach(function(sym){
-        // Try batch format first, then single format
-        var entry=d[sym]||null;
-        // If no batch entry and only 1 symbol, use root response
-        if(!entry&&syms.length===1&&d.price)entry=d;
-        
-        if(entry&&entry.price&&parseFloat(entry.price)>0){
-          var price=parseFloat(entry.price);
-          var prev=wsPrices[sym]?wsPrices[sym].price:price;
-          wsPrices[sym]={price:price,prev:prev,change:price-prev,changePct:prev?((price-prev)/prev)*100:0,stale:false};
-          anySuccess=true;
-        }else if(wsPrices[sym]&&wsPrices[sym].price){
-          wsPrices[sym].stale=true;
-          anySuccess=true;
-        }
-      });
+    if(!r.ok){throw new Error('HTTP '+r.status);}
+    var d=await r.json();
+    console.log('Batch response keys:',Object.keys(d).join(','));
 
-      // Also check if response has SPY data for ES proxy
-      if(wsPrices['SPY']&&wsPrices['SPY'].price&&!wsPrices['SPY'].stale){
+    // Copilot worker returns {SPY:{price:"x"}, AAPL:{price:"x"}} for multiple symbols
+    // For single symbol returns {price:"x"}
+    syms.forEach(function(sym){
+      var entry=null;
+      if(d[sym]&&d[sym].price){
+        // Batch format: {SPY:{price:"754"}}
+        entry=d[sym];
+      }else if(syms.length===1&&d.price){
+        // Single format: {price:"754"}
+        entry=d;
+      }
+      if(entry&&entry.price&&parseFloat(entry.price)>0){
+        var price=parseFloat(entry.price);
+        var prev=wsPrices[sym]?wsPrices[sym].price:price;
+        wsPrices[sym]={price:price,prev:prev,change:price-prev,changePct:prev?((price-prev)/prev)*100:0,stale:false};
+        anySuccess=true;
+        console.log(sym,'=',price);
+      }else if(wsPrices[sym]&&wsPrices[sym].price){
+        wsPrices[sym].stale=true;
         anySuccess=true;
       }
-    }
+    });
   }catch(ex){
-    console.warn('Batch fetch failed:',ex.message);
+    console.warn('fetchREST error:',ex.message);
     if(Object.keys(wsPrices).length>0){
       Object.keys(wsPrices).forEach(function(s){if(wsPrices[s])wsPrices[s].stale=true;});
       anySuccess=true;
