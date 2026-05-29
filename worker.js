@@ -12,7 +12,6 @@ async function handleRequest(request) {
     'Access-Control-Max-Age': '86400',
   };
 
-  // Handle CORS preflight
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
@@ -33,14 +32,32 @@ async function handleRequest(request) {
 
     await Promise.all(symbols.map(async sym => {
       try {
+        // Use /quote which returns previous_close when market is closed
         const resp = await fetch(
-          `https://api.twelvedata.com/price?symbol=${encodeURIComponent(sym)}&apikey=${apiKey}`,
-          {headers: {'User-Agent': 'SignalTracker/1.0'}}
+          `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(sym)}&apikey=${apiKey}`
         );
         const data = await resp.json();
-        results[sym] = data;
+
+        // Use close price, fall back to previous_close when market closed
+        const price = (data.close && parseFloat(data.close) > 0)
+          ? data.close
+          : (data.previous_close && parseFloat(data.previous_close) > 0)
+            ? data.previous_close
+            : null;
+
+        if (price) {
+          results[sym] = {
+            price: price,
+            previous_close: data.previous_close,
+            is_market_open: data.is_market_open,
+            change: data.change,
+            percent_change: data.percent_change
+          };
+        } else {
+          results[sym] = { error: 'No price data', raw: data };
+        }
       } catch(e) {
-        results[sym] = {error: e.message};
+        results[sym] = { error: e.message };
       }
     }));
 
@@ -49,13 +66,12 @@ async function handleRequest(request) {
       headers: {
         ...corsHeaders,
         'Content-Type': 'application/json',
-        'Cache-Control': 'no-store, no-cache, must-revalidate'
+        'Cache-Control': 'no-store'
       }
     });
   }
 
-  // Root — confirm proxy is live
-  return new Response('Signal Tracker API Proxy v2', {
+  return new Response('Signal Tracker API Proxy v3', {
     status: 200,
     headers: {...corsHeaders, 'Content-Type': 'text/plain'}
   });
