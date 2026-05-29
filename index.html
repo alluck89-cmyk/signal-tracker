@@ -369,7 +369,12 @@ async function fetchREST(){
   try{
     var batchUrl=TD_BASE+'/price?symbol='+syms.join(',')+'&apikey='+TD_KEY;
     if(esT)esT.textContent='calling worker...';
-    var r=await fetch(batchUrl,{signal:AbortSignal.timeout(10000)});
+    var r=await fetch(batchUrl,{
+      method:'GET',
+      mode:'cors',
+      cache:'no-store',
+      signal:AbortSignal.timeout(15000)
+    });
     if(!r.ok){throw new Error('HTTP '+r.status);}
     var d=await r.json();
     if(esT)esT.textContent='got response: '+Object.keys(d).length+' syms';
