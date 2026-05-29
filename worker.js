@@ -30,46 +30,33 @@ async function handleRequest(request) {
     const symbols = symbolParam.split(',').map(s => s.trim()).filter(Boolean);
     const results = {};
 
-    // Process in chunks of 8 to stay within rate limit
-    // Wait 500ms between chunks
-    const chunkSize = 8;
-    for (let i = 0; i < symbols.length; i += chunkSize) {
-      const chunk = symbols.slice(i, i + chunkSize);
-      
-      await Promise.all(chunk.map(async sym => {
-        try {
-          const resp = await fetch(
-            `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(sym)}&apikey=${apiKey}`
+    // Fetch all symbols in parallel using /price endpoint
+    // /price costs 1 credit per symbol but is fast and reliable
+    await Promise.all(symbols.map(async sym => {
+      try {
+        const resp = await fetch(
+          `https://api.twelvedata.com/price?symbol=${encodeURIComponent(sym)}&apikey=${apiKey}`
+        );
+        const data = await resp.json();
+        
+        if (data.price && parseFloat(data.price) > 0) {
+          results[sym] = { price: data.price };
+        } else {
+          // Try previous close via eod endpoint as fallback
+          const eodResp = await fetch(
+            `https://api.twelvedata.com/eod?symbol=${encodeURIComponent(sym)}&apikey=${apiKey}`
           );
-          const data = await resp.json();
-
-          const price = (data.close && parseFloat(data.close) > 0)
-            ? data.close
-            : (data.previous_close && parseFloat(data.previous_close) > 0)
-              ? data.previous_close
-              : null;
-
-          if (price) {
-            results[sym] = {
-              price: price,
-              previous_close: data.previous_close,
-              is_market_open: data.is_market_open,
-              change: data.change,
-              percent_change: data.percent_change
-            };
+          const eodData = await eodResp.json();
+          if (eodData.close) {
+            results[sym] = { price: eodData.close, stale: true };
           } else {
             results[sym] = { error: 'No price data' };
           }
-        } catch(e) {
-          results[sym] = { error: e.message };
         }
-      }));
-
-      // Wait 600ms between chunks to respect rate limit
-      if (i + chunkSize < symbols.length) {
-        await new Promise(resolve => setTimeout(resolve, 600));
+      } catch(e) {
+        results[sym] = { error: e.message };
       }
-    }
+    }));
 
     return new Response(JSON.stringify(results), {
       status: 200,
@@ -81,7 +68,7 @@ async function handleRequest(request) {
     });
   }
 
-  return new Response('Signal Tracker API Proxy v4', {
+  return new Response('Signal Tracker API Proxy v5', {
     status: 200,
     headers: {...corsHeaders, 'Content-Type': 'text/plain'}
   });
